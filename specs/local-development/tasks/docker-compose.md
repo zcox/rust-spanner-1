@@ -12,7 +12,7 @@ Create docker-compose.yml for the Spanner emulator.
 
 ## Acceptance Criteria
 
-- [ ] docker-compose.yml created
-- [ ] Spanner emulator starts with `docker-compose up`
-- [ ] Ports 9010 and 9020 are accessible
-- [ ] Emulator responds to health checks
+- [x] docker-compose.yml created
+- [x] Spanner emulator starts with `docker-compose up`
+- [x] Ports 9010 and 9020 are accessible
+- [x] Emulator responds to health checks
