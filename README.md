@@ -30,7 +30,7 @@ The service will start on `http://localhost:3000` by default.
 
 ### Store Document
 ```
-POST /kv/:id
+PUT /kv/:id
 ```
 Stores a JSON document with the specified ID.
 
@@ -64,7 +64,7 @@ All configuration is managed through environment variables. Copy `.env.example` 
 ### Store a JSON Document
 
 ```bash
-curl -X POST http://localhost:3000/kv/550e8400-e29b-41d4-a716-446655440000 \
+curl -X PUT http://localhost:3000/kv/550e8400-e29b-41d4-a716-446655440000 \
   -H "Content-Type: application/json" \
   -d '{"name": "test", "value": 42}' | jq
 ```
@@ -72,11 +72,7 @@ curl -X POST http://localhost:3000/kv/550e8400-e29b-41d4-a716-446655440000 \
 **Response:**
 ```json
 {
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "data": {
-    "name": "test",
-    "value": 42
-  }
+  "id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
@@ -106,7 +102,7 @@ curl http://localhost:3000/health | jq
 **Response:**
 ```json
 {
-  "status": "ok"
+  "status": "healthy"
 }
 ```
 
@@ -128,7 +124,7 @@ docker-compose up -d
 cargo run
 
 # In another terminal, test the API
-curl -X POST http://localhost:3000/kv/test-id \
+curl -X PUT http://localhost:3000/kv/550e8400-e29b-41d4-a716-446655440000 \
   -H "Content-Type: application/json" \
   -d '{"hello": "world"}' | jq
 
