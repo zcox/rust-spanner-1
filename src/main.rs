@@ -4,6 +4,7 @@ mod spanner;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
+    response::{IntoResponse, Response},
     routing::{get, put},
     Json, Router,
 };
@@ -78,6 +79,70 @@ struct ErrorResponse {
     error: String,
 }
 
+/// Custom error type for API endpoints
+///
+/// This error type provides consistent error handling across all endpoints,
+/// automatically mapping different error types to appropriate HTTP status codes
+/// and formatting them as JSON responses.
+#[derive(Debug)]
+enum ApiError {
+    /// Invalid UUID format in path parameter
+    InvalidUuid(String),
+    /// Key not found in database
+    KeyNotFound(Uuid),
+    /// Database operation error
+    DatabaseError(anyhow::Error),
+    /// JSON parsing error
+    JsonError(serde_json::Error),
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, error_message) = match self {
+            ApiError::InvalidUuid(id) => (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid UUID format: expected format like '550e8400-e29b-41d4-a716-446655440000', got '{}'", id),
+            ),
+            ApiError::KeyNotFound(id) => (
+                StatusCode::NOT_FOUND,
+                format!("Key not found: {}", id),
+            ),
+            ApiError::DatabaseError(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", err),
+            ),
+            ApiError::JsonError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("JSON parse error: {}", err),
+            ),
+        };
+
+        let body = Json(ErrorResponse {
+            error: error_message,
+        });
+
+        (status, body).into_response()
+    }
+}
+
+impl From<uuid::Error> for ApiError {
+    fn from(err: uuid::Error) -> Self {
+        ApiError::InvalidUuid(err.to_string())
+    }
+}
+
+impl From<anyhow::Error> for ApiError {
+    fn from(err: anyhow::Error) -> Self {
+        ApiError::DatabaseError(err)
+    }
+}
+
+impl From<serde_json::Error> for ApiError {
+    fn from(err: serde_json::Error) -> Self {
+        ApiError::JsonError(err)
+    }
+}
+
 /// Response type for health check endpoint
 #[derive(Serialize, Deserialize)]
 struct HealthResponse {
@@ -96,66 +161,33 @@ async fn put_handler(
     State(state): State<AppState>,
     Path(id_str): Path<String>,
     Json(data): Json<JsonValue>,
-) -> Result<(StatusCode, Json<PutResponse>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, Json<PutResponse>), ApiError> {
     // Parse and validate UUID
-    let id = match Uuid::parse_str(&id_str) {
-        Ok(uuid) => uuid,
-        Err(_) => {
-            tracing::warn!("Invalid UUID format: {}", id_str);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Invalid UUID format: expected format like '550e8400-e29b-41d4-a716-446655440000'".to_string(),
-                }),
-            ));
-        }
-    };
+    let id = Uuid::parse_str(&id_str).map_err(|_| ApiError::InvalidUuid(id_str.clone()))?;
 
     // Store the document
-    match state.spanner_client.upsert(id, data).await {
-        Ok(_) => {
-            tracing::info!("Successfully stored document with id: {}", id);
-            Ok((
-                StatusCode::OK,
-                Json(PutResponse {
-                    id: id.to_string(),
-                }),
-            ))
-        }
-        Err(e) => {
-            tracing::error!("Database error while storing document: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Database error: {}", e),
-                }),
-            ))
-        }
-    }
+    state.spanner_client.upsert(id, data).await?;
+
+    tracing::info!("Successfully stored document with id: {}", id);
+    Ok((
+        StatusCode::OK,
+        Json(PutResponse {
+            id: id.to_string(),
+        }),
+    ))
 }
 
 /// GET /kv/:id handler - Retrieve a JSON document
 async fn get_handler(
     State(state): State<AppState>,
     Path(id_str): Path<String>,
-) -> Result<(StatusCode, Json<GetResponse>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, Json<GetResponse>), ApiError> {
     // Parse and validate UUID
-    let id = match Uuid::parse_str(&id_str) {
-        Ok(uuid) => uuid,
-        Err(_) => {
-            tracing::warn!("Invalid UUID format: {}", id_str);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Invalid UUID format: expected format like '550e8400-e29b-41d4-a716-446655440000'".to_string(),
-                }),
-            ));
-        }
-    };
+    let id = Uuid::parse_str(&id_str).map_err(|_| ApiError::InvalidUuid(id_str.clone()))?;
 
     // Retrieve the document
-    match state.spanner_client.read(id).await {
-        Ok(Some(data)) => {
+    match state.spanner_client.read(id).await? {
+        Some(data) => {
             tracing::info!("Successfully retrieved document with id: {}", id);
             Ok((
                 StatusCode::OK,
@@ -165,23 +197,9 @@ async fn get_handler(
                 }),
             ))
         }
-        Ok(None) => {
+        None => {
             tracing::info!("Document not found with id: {}", id);
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("Key not found: {}", id),
-                }),
-            ))
-        }
-        Err(e) => {
-            tracing::error!("Database error while retrieving document: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Database error: {}", e),
-                }),
-            ))
+            Err(ApiError::KeyNotFound(id))
         }
     }
 }
