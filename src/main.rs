@@ -25,6 +25,9 @@ struct AppState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Load environment variables from .env file if present
+    dotenvy::dotenv().ok();
+
     tracing_subscriber::fmt::init();
 
     tracing::info!("rust-spanner-kv starting");

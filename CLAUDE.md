@@ -37,4 +37,4 @@ Run these after implementing to verify changes:
 - Lint: `cargo clippy`
 - Compile: `cargo build`
 - Tests: `cargo test -- --test-threads=1` (sequential execution required for env var tests)
-- Run: `set -a && source .env && set +a && RUST_LOG=info cargo run`
+- Run: `RUST_LOG=info cargo run` (or just `cargo run`)
