@@ -13,3 +13,8 @@ Cargo.lock
 *.swo
 *~
 .DS_Store
+
+
+# Added by cargo
+
+/target
