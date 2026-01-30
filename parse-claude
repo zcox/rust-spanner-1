@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Parse Claude CLI JSON output to show important information
+# Usage:
+#   cat output.json | ./parse-claude [MODE] [FILE]
+#   ./parse-claude [MODE] < output.json
+#   ./parse-claude [MODE] output.json
+#
+# Modes:
+#   -c, --compact    Show only assistant messages and tool names (default)
+#   -n, --normal     Show assistant messages, tool details, and results
+#   -h, --help       Show this help message
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODE="compact"
+INPUT_FILE=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -c|--compact)
+      MODE="compact"
+      shift
+      ;;
+    -n|--normal)
+      MODE="normal"
+      shift
+      ;;
+    -h|--help)
+      echo "Usage: $0 [MODE] [FILE]"
+      echo ""
+      echo "Parse Claude CLI JSON output to show important information"
+      echo ""
+      echo "Modes:"
+      echo "  -c, --compact    Show only assistant messages and tool names (default)"
+      echo "  -n, --normal     Show assistant messages, tool details, and results"
+      echo "  -h, --help       Show this help message"
+      echo ""
+      echo "Examples:"
+      echo "  cat output.json | $0"
+      echo "  $0 --normal output.json"
+      echo "  $0 -c < output.json"
+      exit 0
+      ;;
+    *)
+      INPUT_FILE="$1"
+      shift
+      ;;
+  esac
+done
+
+# Select the appropriate jq filter
+if [ "$MODE" = "compact" ]; then
+  JQ_FILTER="$SCRIPT_DIR/parse-claude-compact.jq"
+else
+  JQ_FILTER="$SCRIPT_DIR/parse-claude-normal.jq"
+fi
+
+if [ ! -f "$JQ_FILTER" ]; then
+  echo "Error: jq filter not found at $JQ_FILTER" >&2
+  exit 1
+fi
+
+# Process input
+if [ -n "$INPUT_FILE" ]; then
+  if [ ! -f "$INPUT_FILE" ]; then
+    echo "Error: File not found: $INPUT_FILE" >&2
+    exit 1
+  fi
+  cat "$INPUT_FILE" | jq --unbuffered -f "$JQ_FILTER" -r 2>/dev/null || true
+else
+  # Read from stdin
+  jq --unbuffered -f "$JQ_FILTER" -r 2>/dev/null || true
+fi
