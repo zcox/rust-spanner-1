@@ -1,13 +1,16 @@
-# {Project} Specifications
+# rust-spanner-kv Specifications
 
-Design documentation for {the project}, {short overview of the project}.
+Design documentation for rust-spanner-kv, a simple JSON key-value store web service built with Rust/Axum and backed by Google Cloud Spanner.
 
 ## Current Status Notes
 
-{Brief, always up-to-date notes about current status of things, what's in-progress, what next highest priority is, etc}
+Project not yet started. All specs defined, ready to begin implementation with Local Development spec first (need emulator running to develop against).
 
-## {Some Higher-Level Job To Be Done}
+## Build a JSON Key-Value Store Service
 
 | Status | Spec | Purpose |
 |--------|------|---------|
-| 🔲 | [Spec Name](./{spec-name}/README.md) | {Short overview of the spec's topic of concern} |
+| 🔲 | [Local Development](./local-development/README.md) | Docker Compose setup with Spanner emulator (no manual setup needed) |
+| 🔲 | [Configuration](./configuration/README.md) | Environment variable configuration for Spanner and service settings |
+| 🔲 | [Spanner Integration](./spanner-integration/README.md) | Database connection, auto-provisioning, and CRUD operations |
+| 🔲 | [HTTP API](./http-api/README.md) | REST endpoints for storing and retrieving JSON data |
