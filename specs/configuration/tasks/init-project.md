@@ -12,7 +12,7 @@ Create the Cargo project structure with latest Rust and dependencies.
    - `axum` - HTTP framework
    - `tokio` - async runtime (full features)
    - `serde` + `serde_json` - JSON serialization
-   - `google-cloud-spanner` (or equivalent gcloud-spanner crate)
+   - `gcloud-spanner` - Google Cloud Spanner client
    - `uuid` - UUID generation/validation
    - `tracing` + `tracing-subscriber` - logging
    - `anyhow` or `thiserror` - error handling

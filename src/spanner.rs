@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use google_cloud_spanner::client::{Client, ClientConfig};
+use gcloud_spanner::client::{Client, ClientConfig};
 use std::sync::Arc;
 
 use crate::config::Config;
@@ -14,7 +14,7 @@ impl SpannerClient {
     /// Create a new Spanner client from configuration
     ///
     /// This creates a connection to Spanner using the provided config.
-    /// The google-cloud-spanner library automatically detects the
+    /// The gcloud-spanner library automatically detects the
     /// SPANNER_EMULATOR_HOST environment variable and connects to
     /// the emulator when set, or production Spanner otherwise.
     pub async fn from_config(config: &Config) -> Result<Self> {
