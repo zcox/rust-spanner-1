@@ -13,8 +13,8 @@ Create the Spanner client connection from configuration.
 
 ## Acceptance Criteria
 
-- [ ] Spanner client created from config
-- [ ] Client works with emulator when `SPANNER_EMULATOR_HOST` is set
-- [ ] Connection errors produce descriptive messages
-- [ ] Client is shareable across async handlers
-- [ ] `cargo build` succeeds
+- [x] Spanner client created from config
+- [x] Client works with emulator when `SPANNER_EMULATOR_HOST` is set
+- [x] Connection errors produce descriptive messages
+- [x] Client is shareable across async handlers
+- [x] `cargo build` succeeds

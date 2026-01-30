@@ -34,7 +34,7 @@ Specs and tasks both have a current status that is always up-to-date:
 
 Run these after implementing to verify changes:
 
-- Lint: `[lint command]`
-- Compile: `[compile command]`
-- Tests: `[test command]`
-- Run: `[run command]`
+- Lint: `cargo clippy`
+- Compile: `cargo build`
+- Tests: `cargo test -- --test-threads=1` (sequential execution required for env var tests)
+- Run: `set -a && source .env && set +a && RUST_LOG=info cargo run`
