@@ -11,9 +11,9 @@ Implement GET /health for health checks.
 
 ## Acceptance Criteria
 
-- [ ] Endpoint accepts GET requests at /health
-- [ ] Healthy database returns 200
-- [ ] Unhealthy/unreachable database returns 503
-- [ ] Response includes status field
-- [ ] Error response includes error description
-- [ ] `cargo build` succeeds
+- [x] Endpoint accepts GET requests at /health
+- [x] Healthy database returns 200
+- [x] Unhealthy/unreachable database returns 503
+- [x] Response includes status field
+- [x] Error response includes error description
+- [x] `cargo build` succeeds

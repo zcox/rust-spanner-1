@@ -148,6 +148,39 @@ impl SpannerClient {
             Ok(None)
         }
     }
+
+    /// Perform a health check by executing a simple query
+    ///
+    /// This method performs a lightweight query (SELECT 1) to verify
+    /// that the database connection is alive and responsive.
+    ///
+    /// # Returns
+    /// * `Ok(())` - Database is reachable and responsive
+    /// * `Err(_)` - Database connection failed or query failed
+    ///
+    /// # Errors
+    /// Returns an error if the Spanner query fails or if the transaction cannot be created
+    pub async fn health_check(&self) -> Result<()> {
+        let statement = Statement::new("SELECT 1");
+
+        let mut tx = self.inner
+            .single()
+            .await
+            .context("Failed to create health check transaction")?;
+
+        let mut result_set = tx
+            .query(statement)
+            .await
+            .context("Failed to execute health check query")?;
+
+        // Just verify that we can execute the query and get a result
+        if result_set.next().await?.is_some() {
+            tracing::debug!("Health check query succeeded");
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Health check query returned no results"))
+        }
+    }
 }
 
 /// Automatically provision Spanner instance, database, and table
