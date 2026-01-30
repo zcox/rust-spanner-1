@@ -23,9 +23,9 @@ Implement upsert and read operations for the key-value store.
 
 ## Acceptance Criteria
 
-- [ ] Upsert function implemented
-- [ ] Read function implemented
-- [ ] Functions handle errors gracefully
-- [ ] JSON data round-trips correctly
-- [ ] `cargo build` succeeds
-- [ ] Unit tests pass (if applicable)
+- [x] Upsert function implemented
+- [x] Read function implemented
+- [x] Functions handle errors gracefully
+- [x] JSON data round-trips correctly
+- [x] `cargo build` succeeds
+- [x] Unit tests pass (if applicable)

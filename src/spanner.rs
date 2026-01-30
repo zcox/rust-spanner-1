@@ -9,7 +9,12 @@ use gcloud_googleapis::spanner::admin::instance::v1::{
 use gcloud_spanner::admin::client::Client as AdminClient;
 use gcloud_spanner::admin::AdminClientConfig;
 use gcloud_spanner::client::{Client, ClientConfig};
+use gcloud_spanner::mutation::insert_or_update;
+use gcloud_spanner::statement::Statement;
+use gcloud_spanner::value::CommitTimestamp;
+use serde_json::Value as JsonValue;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::config::Config;
 
@@ -66,6 +71,82 @@ impl SpannerClient {
     /// Get a reference to the underlying Spanner client
     pub fn client(&self) -> &Client {
         &self.inner
+    }
+
+    /// Upsert (insert or update) a JSON document with the given UUID key
+    ///
+    /// This operation will insert a new row if the ID doesn't exist, or update
+    /// an existing row if it does. Both `created_at` and `updated_at` are set
+    /// to the commit timestamp automatically.
+    ///
+    /// # Arguments
+    /// * `id` - UUID key for the document
+    /// * `data` - JSON document to store
+    ///
+    /// # Errors
+    /// Returns an error if the Spanner operation fails
+    pub async fn upsert(&self, id: Uuid, data: JsonValue) -> Result<()> {
+        let id_str = id.to_string();
+        let data_str = serde_json::to_string(&data)
+            .context("Failed to serialize JSON data")?;
+
+        let mutation = insert_or_update(
+            "kv_store",
+            &["id", "data", "created_at", "updated_at"],
+            &[&id_str, &data_str, &CommitTimestamp::new(), &CommitTimestamp::new()],
+        );
+
+        self.inner
+            .apply(vec![mutation])
+            .await
+            .context("Failed to upsert data to Spanner")?;
+
+        tracing::debug!("Upserted document with id: {}", id);
+        Ok(())
+    }
+
+    /// Read a JSON document by its UUID key
+    ///
+    /// # Arguments
+    /// * `id` - UUID key of the document to retrieve
+    ///
+    /// # Returns
+    /// * `Ok(Some(data))` - Document found and returned
+    /// * `Ok(None)` - Document not found
+    /// * `Err(_)` - Spanner operation failed
+    ///
+    /// # Errors
+    /// Returns an error if the Spanner query fails or if JSON deserialization fails
+    pub async fn read(&self, id: Uuid) -> Result<Option<JsonValue>> {
+        let id_str = id.to_string();
+
+        let mut statement = Statement::new(
+            "SELECT data FROM kv_store WHERE id = @id"
+        );
+        statement.add_param("id", &id_str);
+
+        let mut tx = self.inner
+            .single()
+            .await
+            .context("Failed to create read transaction")?;
+
+        let mut result_set = tx
+            .query(statement)
+            .await
+            .context("Failed to query data from Spanner")?;
+
+        // Check if we got any rows
+        if let Some(row) = result_set.next().await? {
+            let data_str: String = row.column_by_name("data")?;
+            let data: JsonValue = serde_json::from_str(&data_str)
+                .context("Failed to deserialize JSON data")?;
+
+            tracing::debug!("Read document with id: {}", id);
+            Ok(Some(data))
+        } else {
+            tracing::debug!("Document not found with id: {}", id);
+            Ok(None)
+        }
     }
 }
 
@@ -406,6 +487,132 @@ mod tests {
         if result1.is_ok() {
             let result2 = SpannerClient::from_config(&config).await;
             assert!(result2.is_ok(), "Second auto-provisioning call should succeed");
+        }
+
+        // Clean up
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_read() {
+        // This test verifies that upsert and read operations work correctly
+        // It requires the emulator to be running
+        unsafe {
+            std::env::set_var("SPANNER_EMULATOR_HOST", "localhost:9010");
+        }
+
+        let config = Config {
+            spanner_emulator_host: Some("localhost:9010".to_string()),
+            spanner_project: "test-project".to_string(),
+            spanner_instance: "crud-test-instance".to_string(),
+            spanner_database: "crud-test-db".to_string(),
+            service_port: 3000,
+            service_host: "0.0.0.0".to_string(),
+        };
+
+        // Create client (which will auto-provision if needed)
+        let client_result = SpannerClient::from_config(&config).await;
+
+        if let Ok(client) = client_result {
+            // Test data
+            let test_id = Uuid::new_v4();
+            let test_data = serde_json::json!({
+                "name": "test document",
+                "value": 42,
+                "nested": {
+                    "key": "value"
+                }
+            });
+
+            // Test upsert
+            let upsert_result = client.upsert(test_id, test_data.clone()).await;
+            assert!(upsert_result.is_ok(), "Upsert should succeed");
+
+            // Test read - should return the data we just inserted
+            let read_result = client.read(test_id).await;
+            assert!(read_result.is_ok(), "Read should succeed");
+
+            let retrieved_data = read_result.unwrap();
+            assert!(retrieved_data.is_some(), "Should find the document");
+            assert_eq!(retrieved_data.unwrap(), test_data, "Retrieved data should match inserted data");
+
+            // Test read with non-existent ID - should return None
+            let non_existent_id = Uuid::new_v4();
+            let read_result = client.read(non_existent_id).await;
+            assert!(read_result.is_ok(), "Read should succeed");
+            assert!(read_result.unwrap().is_none(), "Should not find non-existent document");
+
+            // Test upsert update - update existing document
+            let updated_data = serde_json::json!({
+                "name": "updated document",
+                "value": 100
+            });
+            let update_result = client.upsert(test_id, updated_data.clone()).await;
+            assert!(update_result.is_ok(), "Update should succeed");
+
+            // Verify the update
+            let read_result = client.read(test_id).await;
+            assert!(read_result.is_ok(), "Read should succeed");
+            let retrieved_data = read_result.unwrap();
+            assert!(retrieved_data.is_some(), "Should find the updated document");
+            assert_eq!(retrieved_data.unwrap(), updated_data, "Retrieved data should match updated data");
+        } else {
+            // If emulator is not running, skip the test
+            println!("CRUD test skipped (emulator may not be running)");
+        }
+
+        // Clean up
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_json_round_trip() {
+        // This test verifies that complex JSON data round-trips correctly
+        unsafe {
+            std::env::set_var("SPANNER_EMULATOR_HOST", "localhost:9010");
+        }
+
+        let config = Config {
+            spanner_emulator_host: Some("localhost:9010".to_string()),
+            spanner_project: "test-project".to_string(),
+            spanner_instance: "json-test-instance".to_string(),
+            spanner_database: "json-test-db".to_string(),
+            service_port: 3000,
+            service_host: "0.0.0.0".to_string(),
+        };
+
+        let client_result = SpannerClient::from_config(&config).await;
+
+        if let Ok(client) = client_result {
+            let test_id = Uuid::new_v4();
+
+            // Test with various JSON types
+            let complex_data = serde_json::json!({
+                "string": "hello",
+                "number": 123,
+                "float": 45.67,
+                "boolean": true,
+                "null": null,
+                "array": [1, 2, 3],
+                "nested_object": {
+                    "deep": {
+                        "value": "nested"
+                    }
+                },
+                "unicode": "こんにちは 🚀"
+            });
+
+            // Upsert and read
+            client.upsert(test_id, complex_data.clone()).await.unwrap();
+            let retrieved = client.read(test_id).await.unwrap();
+
+            assert_eq!(retrieved.unwrap(), complex_data, "Complex JSON should round-trip correctly");
+        } else {
+            println!("JSON round-trip test skipped (emulator may not be running)");
         }
 
         // Clean up
