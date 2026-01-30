@@ -34,8 +34,8 @@ Create `README.md` at project root with:
 
 ## Acceptance Criteria
 
-- [ ] README.md created at project root
-- [ ] All sections included
-- [ ] Examples are accurate and work
-- [ ] Prerequisites are complete
-- [ ] Quick start is easy to follow
+- [x] README.md created at project root
+- [x] All sections included
+- [x] Examples are accurate and work
+- [x] Prerequisites are complete
+- [x] Quick start is easy to follow
