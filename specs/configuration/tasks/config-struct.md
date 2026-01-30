@@ -20,10 +20,10 @@ Implement the configuration struct and environment variable loading.
 
 ## Acceptance Criteria
 
-- [ ] Config struct defined with all fields
-- [ ] `Config::from_env()` reads environment variables
-- [ ] Missing required variables produce clear error messages
-- [ ] Invalid values (e.g., non-numeric port) produce clear error messages
-- [ ] `.env.example` documents all variables with example values
-- [ ] `cargo build` succeeds
-- [ ] Running without required vars shows descriptive error
+- [x] Config struct defined with all fields
+- [x] `Config::from_env()` reads environment variables
+- [x] Missing required variables produce clear error messages
+- [x] Invalid values (e.g., non-numeric port) produce clear error messages
+- [x] `.env.example` documents all variables with example values
+- [x] `cargo build` succeeds
+- [x] Running without required vars shows descriptive error
