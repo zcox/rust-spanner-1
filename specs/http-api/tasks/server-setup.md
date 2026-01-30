@@ -13,9 +13,9 @@ Create the Axum application with shared state and routing.
 
 ## Acceptance Criteria
 
-- [ ] Axum app created with router
-- [ ] Shared state includes Spanner client
-- [ ] Server binds to configured host:port
-- [ ] Request logging enabled
-- [ ] `cargo build` succeeds
-- [ ] Server starts without errors (even if endpoints not implemented)
+- [x] Axum app created with router
+- [x] Shared state includes Spanner client
+- [x] Server binds to configured host:port
+- [x] Request logging enabled
+- [x] `cargo build` succeeds
+- [x] Server starts without errors (even if endpoints not implemented)

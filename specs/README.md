@@ -13,4 +13,4 @@ Project not yet started. All specs defined, ready to begin implementation with L
 | ✅ | [Local Development](./local-development/README.md) | Docker Compose setup with Spanner emulator (no manual setup needed) |
 | ✅ | [Configuration](./configuration/README.md) | Environment variable configuration for Spanner and service settings |
 | ✅ | [Spanner Integration](./spanner-integration/README.md) | Database connection, auto-provisioning, and CRUD operations |
-| 🔲 | [HTTP API](./http-api/README.md) | REST endpoints for storing and retrieving JSON data |
+| 🔄 | [HTTP API](./http-api/README.md) | REST endpoints for storing and retrieving JSON data |
