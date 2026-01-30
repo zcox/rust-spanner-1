@@ -1,10 +1,10 @@
 # PUT Endpoint
 
-Implement PUT /kv/:id for storing JSON documents.
+Implement PUT /kv/{id} for storing JSON documents.
 
 ## Requirements
 
-1. Route: `PUT /kv/:id`
+1. Route: `PUT /kv/{id}` (Note: Axum 0.8 uses `{id}` syntax instead of `:id`)
 2. Extract UUID from path parameter
 3. Validate UUID format, return 400 if invalid
 4. Parse JSON request body
@@ -14,7 +14,7 @@ Implement PUT /kv/:id for storing JSON documents.
 
 ## Acceptance Criteria
 
-- [x] Endpoint accepts PUT requests at /kv/:id
+- [x] Endpoint accepts PUT requests at /kv/{id}
 - [x] UUID validation works correctly
 - [x] Invalid UUID returns 400 with descriptive error
 - [x] Valid JSON body is stored

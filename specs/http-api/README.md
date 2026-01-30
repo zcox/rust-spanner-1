@@ -14,8 +14,10 @@ The service exposes a simple REST API for key-value operations. All endpoints us
 
 ### Endpoints
 
-#### PUT /kv/:id
+#### PUT /kv/{id}
 Store a JSON document at the given key (upsert - create or replace).
+
+**Note:** Path parameters use `{id}` syntax for Axum 0.8.
 
 **Path Parameters:**
 - `id` (UUID) - The key to store the document at
@@ -37,7 +39,7 @@ Store a JSON document at the given key (upsert - create or replace).
   { "error": "Database error: connection failed" }
   ```
 
-#### GET /kv/:id
+#### GET /kv/{id}
 Retrieve a JSON document by key.
 
 **Path Parameters:**

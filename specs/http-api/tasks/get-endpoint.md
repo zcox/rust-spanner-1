@@ -1,10 +1,10 @@
 # GET Endpoint
 
-Implement GET /kv/:id for retrieving JSON documents.
+Implement GET /kv/{id} for retrieving JSON documents.
 
 ## Requirements
 
-1. Route: `GET /kv/:id`
+1. Route: `GET /kv/{id}` (Note: Axum 0.8 uses `{id}` syntax instead of `:id`)
 2. Extract UUID from path parameter
 3. Validate UUID format, return 400 if invalid
 4. Call read function with ID
@@ -14,7 +14,7 @@ Implement GET /kv/:id for retrieving JSON documents.
 
 ## Acceptance Criteria
 
-- [ ] Endpoint accepts GET requests at /kv/:id
+- [ ] Endpoint accepts GET requests at /kv/{id}
 - [ ] UUID validation works correctly
 - [ ] Invalid UUID returns 400 with descriptive error
 - [ ] Existing key returns 200 with data
