@@ -14,10 +14,10 @@ Implement GET /kv/{id} for retrieving JSON documents.
 
 ## Acceptance Criteria
 
-- [ ] Endpoint accepts GET requests at /kv/{id}
-- [ ] UUID validation works correctly
-- [ ] Invalid UUID returns 400 with descriptive error
-- [ ] Existing key returns 200 with data
-- [ ] Non-existent key returns 404 with descriptive error
-- [ ] Database errors return 500
-- [ ] `cargo build` succeeds
+- [x] Endpoint accepts GET requests at /kv/{id}
+- [x] UUID validation works correctly
+- [x] Invalid UUID returns 400 with descriptive error
+- [x] Existing key returns 200 with data
+- [x] Non-existent key returns 404 with descriptive error
+- [x] Database errors return 500
+- [x] `cargo build` succeeds
