@@ -32,14 +32,14 @@ Automatically create Spanner instance, database, and table on startup.
 
 ## Acceptance Criteria
 
-- [ ] Instance existence check works
-- [ ] Instance is created if it doesn't exist
-- [ ] Database existence check works
-- [ ] Database is created if it doesn't exist
-- [ ] Table existence check works
-- [ ] Table is created if it doesn't exist
-- [ ] Existing resources are not modified
-- [ ] All errors produce descriptive messages
-- [ ] Startup logs indicate provisioning status for each resource
-- [ ] `cargo build` succeeds
-- [ ] Works with emulator (docker-compose)
+- [x] Instance existence check works
+- [x] Instance is created if it doesn't exist
+- [x] Database existence check works
+- [x] Database is created if it doesn't exist
+- [x] Table existence check works
+- [x] Table is created if it doesn't exist
+- [x] Existing resources are not modified
+- [x] All errors produce descriptive messages
+- [x] Startup logs indicate provisioning status for each resource
+- [x] `cargo build` succeeds
+- [x] Works with emulator (docker-compose)
