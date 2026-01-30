@@ -14,11 +14,11 @@ Implement PUT /kv/:id for storing JSON documents.
 
 ## Acceptance Criteria
 
-- [ ] Endpoint accepts PUT requests at /kv/:id
-- [ ] UUID validation works correctly
-- [ ] Invalid UUID returns 400 with descriptive error
-- [ ] Valid JSON body is stored
-- [ ] Invalid JSON returns 400
-- [ ] Successful store returns 200 with ID
-- [ ] Database errors return 500
-- [ ] `cargo build` succeeds
+- [x] Endpoint accepts PUT requests at /kv/:id
+- [x] UUID validation works correctly
+- [x] Invalid UUID returns 400 with descriptive error
+- [x] Valid JSON body is stored
+- [x] Invalid JSON returns 400
+- [x] Successful store returns 200 with ID
+- [x] Database errors return 500
+- [x] `cargo build` succeeds
