@@ -23,7 +23,7 @@ Create .env and .env.example files for local development.
 
 ## Acceptance Criteria
 
-- [ ] .env.example created with all variables
-- [ ] .env created with working local values
-- [ ] .env is in .gitignore
-- [ ] .env.example is tracked in git
+- [x] .env.example created with all variables
+- [x] .env created with working local values
+- [x] .env is in .gitignore
+- [x] .env.example is tracked in git

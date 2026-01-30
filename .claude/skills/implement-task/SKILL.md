@@ -9,7 +9,8 @@ study the task's spec in specs/{spec-name}/README.md.
 1. Your job is to implement the task per the spec. Only complete that one task, and then stop (don't try to do too much in one session). Before making changes, search the codebase (don't assume not implemented).
 1b. Update specs/README.md and specs/{spec-name}/tasks/README.md to show that the spec & task are In Progress (always keep these files updated!).
 2. Follow the Software Development process.
-3. When the task is complete, update specs/README.md and specs/{spec-name}/tasks/README.md and any checklists in specs/{spec-name}/tasks/{task.md} with the proper status (In Progress or Complete) (always keep those files updated!), then `git add -A` then `git commit` in a subagent with a message describing the changes.
+3. When the task is complete, update specs/README.md and specs/{spec-name}/tasks/README.md and any checklists in specs/{spec-name}/tasks/{task.md} with the proper status (In Progress or Complete) (always keep those files updated!)
+4. `git add -A` then `git commit` in a subagent with a brief message describing the changes. This git commit must be made as fast as possible. You must not spend lots of time reviewing git history; just briefly summarize what you did in a sentnce or two, using the context you have, and use that as the commit message.
 5. Before finishing up, make sure any servers or docker containers you ran are stopped/killed.
 
 9999. VITAL: you must keep the spec and task statuses updated at all times! Future sessions won't know what to do unless you keep statuses updated. Spec status is in specs/README.md and task status is in specs/{spec-name}/tasks/README.md.
