@@ -1,0 +1,1 @@
+find a way to generate OpenAPI docs for the endpoints in this service.
