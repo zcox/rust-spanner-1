@@ -15,4 +15,4 @@ Don't assume each task is implemented or not implemented, verify against code in
 Each task must include its own tests to verify, and its own polish details. There must not be any tasks that focus only on testing or polish.
 Try to make your own decisions, but if you really need human clarification you can interview me using the AskUserQuestion tool.
 Leave a short note in specs/{spec-name}/tasks/README.md to tell future agents that you planned the tasks.
-When you're finished planning, then `git add -A` then `git commit` in a subagent with a message describing the changes.
+When you're finished planning, commit all changes by simply running `scripts/commit.sh <message>` with a very brief, fast commit messages of changes. You must not use any git commands to generate that message, just quickly summarize what you did. Speed is essential.
