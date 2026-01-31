@@ -12,6 +12,7 @@ study the task's spec in specs/{spec-name}/README.md.
 3. When the task is complete, update specs/README.md and specs/{spec-name}/tasks/README.md and any checklists in specs/{spec-name}/tasks/{task.md} with the proper status (In Progress or Complete) (always keep those files updated!)
 4. Commit all changes by simply running `scripts/commit.sh <message>` with a very brief, fast commit messages of changes. You must not use any git commands to generate that message, just quickly summarize what you did. Speed is essential.
 5. Before finishing up, make sure any servers or docker containers you ran are stopped/killed.
+6. After the task and all TODOs are complete, Claude always wants to provide a summary of what was accomplished. However, it takes way too long. You must not summarize at the very end. Just state the task is complete, and then stop.
 
 9999. VITAL: you must keep the spec and task statuses updated at all times! Future sessions won't know what to do unless you keep statuses updated. Spec status is in specs/README.md and task status is in specs/{spec-name}/tasks/README.md.
 99999. Important: When authoring documentation, capture the why — tests and implementation importance.
