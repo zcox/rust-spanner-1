@@ -65,20 +65,20 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Response type for successful PUT operations
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 struct PutResponse {
     id: String,
 }
 
 /// Response type for successful GET operations
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 struct GetResponse {
     id: String,
     data: JsonValue,
 }
 
 /// Query parameters for list endpoint
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 struct ListQuery {
     limit: Option<u32>,
     offset: Option<u32>,
@@ -87,14 +87,14 @@ struct ListQuery {
 }
 
 /// Response type for list endpoint
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 struct ListResponse {
     data: Vec<KvEntryResponse>,
     total_count: i64,
 }
 
 /// Individual key-value entry in list response
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 struct KvEntryResponse {
     key: String,
     value: JsonValue,
@@ -103,7 +103,7 @@ struct KvEntryResponse {
 }
 
 /// Error response type
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 struct ErrorResponse {
     error: String,
 }
@@ -179,13 +179,13 @@ impl From<serde_json::Error> for ApiError {
 }
 
 /// Response type for health check endpoint
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 struct HealthResponse {
     status: String,
 }
 
 /// Response type for unhealthy status
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 struct UnhealthyResponse {
     status: String,
     error: String,
