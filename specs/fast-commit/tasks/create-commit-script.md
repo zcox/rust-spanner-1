@@ -29,10 +29,10 @@ a1b2c3d
 
 ## Acceptance Criteria
 
-- [ ] Script exists at scripts/commit.sh
-- [ ] Script is executable
-- [ ] Commit message is required (fails gracefully if missing)
-- [ ] All changes are staged before commit
-- [ ] Co-Authored-By line is included in every commit
-- [ ] Only the short hash is output on success
-- [ ] Execution completes in under 1 second (no network calls, no LLM)
+- [x] Script exists at scripts/commit.sh
+- [x] Script is executable
+- [x] Commit message is required (fails gracefully if missing)
+- [x] All changes are staged before commit
+- [x] Co-Authored-By line is included in every commit
+- [x] Only the short hash is output on success
+- [x] Execution completes in under 1 second (no network calls, no LLM)

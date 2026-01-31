@@ -19,4 +19,4 @@ Project not yet started. All specs defined, ready to begin implementation with L
 
 | Status | Spec | Purpose |
 |--------|------|---------|
-| 🔄 | [Fast Commit](./fast-commit/README.md) | Shell script for sub-1-second git commits |
+| ✅ | [Fast Commit](./fast-commit/README.md) | Shell script for sub-1-second git commits |
