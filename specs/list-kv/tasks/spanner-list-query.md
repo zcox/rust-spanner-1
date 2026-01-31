@@ -43,8 +43,8 @@ struct ListResult {
 
 ## Acceptance Criteria
 
-- [ ] Function handles all sort options correctly
-- [ ] Prefix filtering works with SQL LIKE pattern
-- [ ] Pagination with limit/offset works correctly
-- [ ] Total count reflects filtered count when prefix is used
-- [ ] Empty result returns empty vec with count 0
+- [x] Function handles all sort options correctly
+- [x] Prefix filtering works with SQL LIKE pattern
+- [x] Pagination with limit/offset works correctly
+- [x] Total count reflects filtered count when prefix is used
+- [x] Empty result returns empty vec with count 0

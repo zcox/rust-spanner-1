@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use gcloud_gax::grpc::Code;
 use gcloud_googleapis::spanner::admin::database::v1::{
     CreateDatabaseRequest, GetDatabaseDdlRequest, GetDatabaseRequest, UpdateDatabaseDdlRequest,
@@ -17,6 +18,47 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::config::Config;
+
+/// A single key-value entry with metadata
+#[derive(Debug, Clone, PartialEq)]
+pub struct KvEntry {
+    pub key: String,
+    pub value: JsonValue,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Result of a list query with pagination info
+#[derive(Debug, Clone)]
+pub struct ListResult {
+    pub entries: Vec<KvEntry>,
+    pub total_count: i64,
+}
+
+/// Sort order options for list queries
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortOrder {
+    KeyAsc,
+    KeyDesc,
+    CreatedAsc,
+    CreatedDesc,
+    UpdatedAsc,
+    UpdatedDesc,
+}
+
+impl SortOrder {
+    /// Convert to SQL ORDER BY clause
+    fn to_sql(self) -> &'static str {
+        match self {
+            SortOrder::KeyAsc => "id ASC",
+            SortOrder::KeyDesc => "id DESC",
+            SortOrder::CreatedAsc => "created_at ASC",
+            SortOrder::CreatedDesc => "created_at DESC",
+            SortOrder::UpdatedAsc => "updated_at ASC",
+            SortOrder::UpdatedDesc => "updated_at DESC",
+        }
+    }
+}
 
 /// Shareable Spanner client for use across async handlers
 #[derive(Clone)]
@@ -180,6 +222,141 @@ impl SpannerClient {
         } else {
             Err(anyhow::anyhow!("Health check query returned no results"))
         }
+    }
+
+    /// List all key-value pairs with optional filtering, sorting, and pagination
+    ///
+    /// # Arguments
+    /// * `prefix` - Optional key prefix filter (e.g., "user-" to match all keys starting with "user-")
+    /// * `sort` - Sort order for results (default: KeyAsc)
+    /// * `limit` - Maximum number of results to return (None = all results)
+    /// * `offset` - Number of results to skip (default: 0)
+    ///
+    /// # Returns
+    /// * `ListResult` - Contains the matching entries and total count
+    ///
+    /// # Errors
+    /// Returns an error if the Spanner query fails or if JSON deserialization fails
+    pub async fn list_all(
+        &self,
+        prefix: Option<&str>,
+        sort: SortOrder,
+        limit: Option<i64>,
+        offset: i64,
+    ) -> Result<ListResult> {
+        // Build the count query
+        let count_query = if prefix.is_some() {
+            "SELECT COUNT(*) as count FROM kv_store WHERE id LIKE @prefix".to_string()
+        } else {
+            "SELECT COUNT(*) as count FROM kv_store".to_string()
+        };
+
+        let mut count_stmt = Statement::new(&count_query);
+        if let Some(prefix) = prefix {
+            let prefix_pattern = format!("{}%", prefix);
+            count_stmt.add_param("prefix", &prefix_pattern);
+        }
+
+        // Execute count query
+        let mut tx = self.inner
+            .single()
+            .await
+            .context("Failed to create read transaction for count")?;
+
+        let mut count_result = tx
+            .query(count_stmt)
+            .await
+            .context("Failed to execute count query")?;
+
+        let total_count: i64 = if let Some(row) = count_result.next().await? {
+            row.column_by_name("count")?
+        } else {
+            0
+        };
+
+        // Build the data query
+        let mut data_query = if let Some(_prefix) = prefix {
+            "SELECT id, data, created_at, updated_at FROM kv_store WHERE id LIKE @prefix".to_string()
+        } else {
+            "SELECT id, data, created_at, updated_at FROM kv_store".to_string()
+        };
+
+        // Add ORDER BY clause
+        data_query.push_str(&format!(" ORDER BY {}", sort.to_sql()));
+
+        // Add LIMIT and OFFSET if specified
+        // In Spanner SQL, LIMIT must come before OFFSET
+        if let Some(limit_val) = limit {
+            data_query.push_str(&format!(" LIMIT {}", limit_val));
+            if offset > 0 {
+                data_query.push_str(&format!(" OFFSET {}", offset));
+            }
+        } else if offset > 0 {
+            // If we have offset but no limit, we need to use a large limit
+            data_query.push_str(&format!(" LIMIT {} OFFSET {}", i64::MAX, offset));
+        }
+
+        let mut data_stmt = Statement::new(&data_query);
+        if let Some(prefix) = prefix {
+            let prefix_pattern = format!("{}%", prefix);
+            data_stmt.add_param("prefix", &prefix_pattern);
+        }
+
+        // Execute data query
+        let mut tx = self.inner
+            .single()
+            .await
+            .context("Failed to create read transaction for data")?;
+
+        let mut data_result = tx
+            .query(data_stmt)
+            .await
+            .context("Failed to execute data query")?;
+
+        // Collect results
+        let mut entries = Vec::new();
+        while let Some(row) = data_result.next().await? {
+            let key: String = row.column_by_name("id")?;
+            let data_str: String = row.column_by_name("data")?;
+
+            // Extract timestamps - gcloud-spanner returns prost_types::Timestamp
+            // We need to get it in a format we can work with
+            let created_at_str: String = row.column_by_name("created_at")?;
+            let updated_at_str: String = row.column_by_name("updated_at")?;
+
+            let value: JsonValue = serde_json::from_str(&data_str)
+                .context("Failed to deserialize JSON data")?;
+
+            // Parse RFC3339 timestamps to DateTime<Utc>
+            let created_at = DateTime::parse_from_rfc3339(&created_at_str)
+                .context("Failed to parse created_at timestamp")?
+                .with_timezone(&Utc);
+            let updated_at = DateTime::parse_from_rfc3339(&updated_at_str)
+                .context("Failed to parse updated_at timestamp")?
+                .with_timezone(&Utc);
+
+            entries.push(KvEntry {
+                key,
+                value,
+                created_at,
+                updated_at,
+            });
+        }
+
+        tracing::debug!(
+            "Listed {} entries (total: {}, prefix: {:?}, sort: {:?}, limit: {:?}, offset: {})",
+            entries.len(),
+            total_count,
+            prefix,
+            sort,
+            limit,
+            offset
+        );
+
+        Ok(ListResult {
+            entries,
+            total_count,
+        })
     }
 }
 
@@ -649,6 +826,266 @@ mod tests {
         }
 
         // Clean up
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_all_empty() {
+        // This test verifies that list_all returns empty results when no data exists
+        unsafe {
+            std::env::set_var("SPANNER_EMULATOR_HOST", "localhost:9010");
+        }
+
+        let config = Config {
+            spanner_emulator_host: Some("localhost:9010".to_string()),
+            spanner_project: "test-project".to_string(),
+            spanner_instance: "list-empty-instance".to_string(),
+            spanner_database: "list-empty-db".to_string(),
+            service_port: 3000,
+            service_host: "0.0.0.0".to_string(),
+        };
+
+        let client_result = SpannerClient::from_config(&config).await;
+
+        if let Ok(client) = client_result {
+            // Query empty database
+            let result = client.list_all(None, SortOrder::KeyAsc, None, 0).await;
+            assert!(result.is_ok(), "List query should succeed on empty database");
+
+            let list_result = result.unwrap();
+            assert_eq!(list_result.entries.len(), 0, "Should return no entries");
+            assert_eq!(list_result.total_count, 0, "Total count should be 0");
+        } else {
+            println!("List empty test skipped (emulator may not be running)");
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_all_basic() {
+        // This test verifies basic list_all functionality with sorting
+        unsafe {
+            std::env::set_var("SPANNER_EMULATOR_HOST", "localhost:9010");
+        }
+
+        let config = Config {
+            spanner_emulator_host: Some("localhost:9010".to_string()),
+            spanner_project: "test-project".to_string(),
+            spanner_instance: "list-basic-instance".to_string(),
+            spanner_database: "list-basic-db".to_string(),
+            service_port: 3000,
+            service_host: "0.0.0.0".to_string(),
+        };
+
+        let client_result = SpannerClient::from_config(&config).await;
+
+        if let Ok(client) = client_result {
+            // Insert test data
+            let id1 = Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
+            let id2 = Uuid::parse_str("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb").unwrap();
+            let id3 = Uuid::parse_str("cccccccc-cccc-cccc-cccc-cccccccccccc").unwrap();
+
+            let data1 = serde_json::json!({"name": "first"});
+            let data2 = serde_json::json!({"name": "second"});
+            let data3 = serde_json::json!({"name": "third"});
+
+            client.upsert(id2, data2.clone()).await.unwrap();
+            client.upsert(id1, data1.clone()).await.unwrap();
+            client.upsert(id3, data3.clone()).await.unwrap();
+
+            // Test list all with ascending key sort
+            let result = client.list_all(None, SortOrder::KeyAsc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 3, "Should return 3 entries");
+            assert_eq!(result.total_count, 3, "Total count should be 3");
+            assert_eq!(result.entries[0].key, id1.to_string(), "First entry should be id1");
+            assert_eq!(result.entries[1].key, id2.to_string(), "Second entry should be id2");
+            assert_eq!(result.entries[2].key, id3.to_string(), "Third entry should be id3");
+
+            // Test list all with descending key sort
+            let result = client.list_all(None, SortOrder::KeyDesc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 3, "Should return 3 entries");
+            assert_eq!(result.entries[0].key, id3.to_string(), "First entry should be id3");
+            assert_eq!(result.entries[1].key, id2.to_string(), "Second entry should be id2");
+            assert_eq!(result.entries[2].key, id1.to_string(), "Third entry should be id1");
+        } else {
+            println!("List basic test skipped (emulator may not be running)");
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_all_pagination() {
+        // This test verifies pagination with limit and offset
+        unsafe {
+            std::env::set_var("SPANNER_EMULATOR_HOST", "localhost:9010");
+        }
+
+        let config = Config {
+            spanner_emulator_host: Some("localhost:9010".to_string()),
+            spanner_project: "test-project".to_string(),
+            spanner_instance: "list-pagination-instance".to_string(),
+            spanner_database: "list-pagination-db".to_string(),
+            service_port: 3000,
+            service_host: "0.0.0.0".to_string(),
+        };
+
+        let client_result = SpannerClient::from_config(&config).await;
+
+        if let Ok(client) = client_result {
+            // Insert 5 test items
+            for i in 0..5 {
+                let id = Uuid::parse_str(&format!("{:08x}-0000-0000-0000-000000000000", i)).unwrap();
+                let data = serde_json::json!({"index": i});
+                client.upsert(id, data).await.unwrap();
+            }
+
+            // Test limit
+            let result = client.list_all(None, SortOrder::KeyAsc, Some(2), 0).await.unwrap();
+            assert_eq!(result.entries.len(), 2, "Should return 2 entries with limit=2");
+            assert_eq!(result.total_count, 5, "Total count should still be 5");
+
+            // Test offset
+            let result = client.list_all(None, SortOrder::KeyAsc, None, 2).await.unwrap();
+            assert_eq!(result.entries.len(), 3, "Should return 3 entries with offset=2");
+            assert_eq!(result.total_count, 5, "Total count should be 5");
+
+            // Test limit + offset
+            let result = client.list_all(None, SortOrder::KeyAsc, Some(2), 2).await.unwrap();
+            assert_eq!(result.entries.len(), 2, "Should return 2 entries with limit=2 and offset=2");
+            assert_eq!(result.total_count, 5, "Total count should be 5");
+        } else {
+            println!("List pagination test skipped (emulator may not be running)");
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_all_prefix_filter() {
+        // This test verifies prefix filtering
+        unsafe {
+            std::env::set_var("SPANNER_EMULATOR_HOST", "localhost:9010");
+        }
+
+        let config = Config {
+            spanner_emulator_host: Some("localhost:9010".to_string()),
+            spanner_project: "test-project".to_string(),
+            spanner_instance: "list-prefix-instance".to_string(),
+            spanner_database: "list-prefix-db".to_string(),
+            service_port: 3000,
+            service_host: "0.0.0.0".to_string(),
+        };
+
+        let client_result = SpannerClient::from_config(&config).await;
+
+        if let Ok(client) = client_result {
+            // Insert test data with different prefixes
+            let user1_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+            let user2_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+            let admin_id = Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
+
+            client.upsert(user1_id, serde_json::json!({"type": "user"})).await.unwrap();
+            client.upsert(user2_id, serde_json::json!({"type": "user"})).await.unwrap();
+            client.upsert(admin_id, serde_json::json!({"type": "admin"})).await.unwrap();
+
+            // Test prefix filter for "1" - should match user1
+            let result = client.list_all(Some("1"), SortOrder::KeyAsc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 1, "Should return 1 entry with prefix '1'");
+            assert_eq!(result.total_count, 1, "Total count should be 1");
+            assert_eq!(result.entries[0].key, user1_id.to_string());
+
+            // Test prefix filter for "2" - should match user2
+            let result = client.list_all(Some("2"), SortOrder::KeyAsc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 1, "Should return 1 entry with prefix '2'");
+            assert_eq!(result.total_count, 1, "Total count should be 1");
+
+            // Test prefix filter for "a" - should match admin
+            let result = client.list_all(Some("a"), SortOrder::KeyAsc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 1, "Should return 1 entry with prefix 'a'");
+            assert_eq!(result.total_count, 1, "Total count should be 1");
+
+            // Test prefix filter that matches nothing
+            let result = client.list_all(Some("xyz"), SortOrder::KeyAsc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 0, "Should return 0 entries with non-matching prefix");
+            assert_eq!(result.total_count, 0, "Total count should be 0");
+        } else {
+            println!("List prefix filter test skipped (emulator may not be running)");
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_all_sort_by_timestamps() {
+        // This test verifies sorting by created_at and updated_at
+        unsafe {
+            std::env::set_var("SPANNER_EMULATOR_HOST", "localhost:9010");
+        }
+
+        let config = Config {
+            spanner_emulator_host: Some("localhost:9010".to_string()),
+            spanner_project: "test-project".to_string(),
+            spanner_instance: "list-sort-instance".to_string(),
+            spanner_database: "list-sort-db".to_string(),
+            service_port: 3000,
+            service_host: "0.0.0.0".to_string(),
+        };
+
+        let client_result = SpannerClient::from_config(&config).await;
+
+        if let Ok(client) = client_result {
+            // Use a unique prefix for this test run to isolate data
+            let test_prefix = Uuid::new_v4().to_string();
+            let test_prefix = &test_prefix[0..8]; // Use first 8 chars as prefix
+
+            // Insert test data with slight delays to ensure different timestamps
+            // Using UUIDs with our test prefix
+            let id1 = Uuid::parse_str(&format!("{}-1111-1111-1111-111111111111", test_prefix)).unwrap();
+            let id2 = Uuid::parse_str(&format!("{}-2222-2222-2222-222222222222", test_prefix)).unwrap();
+            let id3 = Uuid::parse_str(&format!("{}-3333-3333-3333-333333333333", test_prefix)).unwrap();
+
+            client.upsert(id1, serde_json::json!({"order": 1})).await.unwrap();
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            client.upsert(id2, serde_json::json!({"order": 2})).await.unwrap();
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            client.upsert(id3, serde_json::json!({"order": 3})).await.unwrap();
+
+            // Test sort by created_at ascending (oldest first) - filter by prefix
+            let result = client.list_all(Some(test_prefix), SortOrder::CreatedAsc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 3);
+            assert_eq!(result.entries[0].key, id1.to_string(), "First should be oldest");
+            assert_eq!(result.entries[2].key, id3.to_string(), "Last should be newest");
+
+            // Test sort by created_at descending (newest first)
+            let result = client.list_all(Some(test_prefix), SortOrder::CreatedDesc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 3);
+            assert_eq!(result.entries[0].key, id3.to_string(), "First should be newest");
+            assert_eq!(result.entries[2].key, id1.to_string(), "Last should be oldest");
+
+            // Update id1 to change its updated_at timestamp
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            client.upsert(id1, serde_json::json!({"order": 1, "updated": true})).await.unwrap();
+
+            // Test sort by updated_at descending (most recently updated first)
+            let result = client.list_all(Some(test_prefix), SortOrder::UpdatedDesc, None, 0).await.unwrap();
+            assert_eq!(result.entries.len(), 3);
+            assert_eq!(result.entries[0].key, id1.to_string(), "id1 should be most recently updated");
+        } else {
+            println!("List sort by timestamps test skipped (emulator may not be running)");
+        }
+
         unsafe {
             std::env::remove_var("SPANNER_EMULATOR_HOST");
         }
