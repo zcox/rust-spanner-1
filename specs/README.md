@@ -20,5 +20,5 @@ Project not yet started. All specs defined, ready to begin implementation with L
 
 | Status | Spec | Purpose |
 |--------|------|---------|
-| 🔲 | [OpenAPI Documentation](./openapi-docs/README.md) | Generate and serve OpenAPI docs with Swagger UI |
+| 🔄 | [OpenAPI Documentation](./openapi-docs/README.md) | Generate and serve OpenAPI docs with Swagger UI |
 | ✅ | [Fast Commit](./fast-commit/README.md) | Shell script for sub-1-second git commits |
