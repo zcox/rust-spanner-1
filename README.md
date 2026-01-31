@@ -46,6 +46,23 @@ GET /health
 ```
 Returns the health status of the service.
 
+## OpenAPI Documentation
+
+The service provides interactive API documentation via Swagger UI:
+
+```bash
+# Start the service
+cargo run
+
+# Open Swagger UI in your browser
+open http://localhost:3000/swagger-ui
+```
+
+The raw OpenAPI specification is available at:
+```
+GET /api-doc/openapi.json
+```
+
 ## Configuration Reference
 
 All configuration is managed through environment variables. Copy `.env.example` to `.env` and modify as needed.
