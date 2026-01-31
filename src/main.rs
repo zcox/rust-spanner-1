@@ -1061,4 +1061,724 @@ mod tests {
             std::env::remove_var("SPANNER_EMULATOR_HOST");
         }
     }
+
+    // Integration tests for GET /kv endpoint - comprehensive coverage
+    // These tests verify pagination, sorting, filtering, and error handling
+
+    /// Helper function to create a fresh test database with known data
+    async fn setup_list_test_app() -> (Router, Vec<Uuid>) {
+        unsafe {
+            std::env::set_var("SPANNER_EMULATOR_HOST", "localhost:9010");
+        }
+
+        let config = Config {
+            spanner_emulator_host: Some("localhost:9010".to_string()),
+            spanner_project: "test-project".to_string(),
+            spanner_instance: "list-integration-test".to_string(),
+            spanner_database: "list-integration-test-db".to_string(),
+            service_port: 3000,
+            service_host: "0.0.0.0".to_string(),
+        };
+
+        let spanner_client = SpannerClient::from_config(&config)
+            .await
+            .expect("Failed to create Spanner client");
+
+        let state = AppState {
+            spanner_client,
+            config: Arc::new(config),
+        };
+
+        let app = Router::new()
+            .route("/health", get(health_handler))
+            .route("/kv", get(list_handler))
+            .route("/kv/{id}", put(put_handler).get(get_handler))
+            .with_state(state);
+
+        // Insert test data
+        let mut ids = Vec::new();
+        let test_data = vec![
+            serde_json::json!({"type": "fruit", "color": "red", "name": "apple"}),
+            serde_json::json!({"type": "fruit", "color": "yellow", "name": "banana"}),
+            serde_json::json!({"type": "vegetable", "color": "orange", "name": "carrot"}),
+            serde_json::json!({"type": "fruit", "color": "brown", "name": "date"}),
+        ];
+
+        for data in test_data {
+            let id = Uuid::new_v4();
+            ids.push(id);
+
+            let _ = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(format!("/kv/{}", id))
+                        .header("content-type", "application/json")
+                        .body(Body::from(serde_json::to_string(&data).unwrap()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            // Small delay to ensure different timestamps
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+
+        (app, ids)
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_pagination_limit() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        // Test limit=2
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?limit=2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Should return exactly 2 entries
+        assert_eq!(response_json.data.len(), 2);
+        // Total count should reflect all entries
+        assert!(response_json.total_count >= 4);
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_pagination_offset() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        // First, get all entries to know what to expect
+        let all_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let all_body = axum::body::to_bytes(all_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let all_json: ListResponse = serde_json::from_slice(&all_body).unwrap();
+
+        if all_json.data.len() < 2 {
+            panic!("Not enough test data");
+        }
+
+        // Now test offset=1
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?offset=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Should skip first entry
+        assert_eq!(response_json.data.len(), all_json.data.len() - 1);
+        // First key should be the second key from all results
+        assert_eq!(response_json.data[0].key, all_json.data[1].key);
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_pagination_limit_and_offset() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        // First, get all entries
+        let all_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let all_body = axum::body::to_bytes(all_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let all_json: ListResponse = serde_json::from_slice(&all_body).unwrap();
+
+        // Test limit=2&offset=1
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?limit=2&offset=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Should return 2 entries starting from offset 1
+        assert_eq!(response_json.data.len(), 2);
+        assert_eq!(response_json.data[0].key, all_json.data[1].key);
+        assert_eq!(response_json.data[1].key, all_json.data[2].key);
+        // Total count should reflect all entries
+        assert_eq!(response_json.total_count, all_json.total_count);
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_sort_key_asc() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?sort=key_asc")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify keys are sorted alphabetically ascending
+        for i in 0..response_json.data.len() - 1 {
+            assert!(
+                response_json.data[i].key <= response_json.data[i + 1].key,
+                "Keys should be sorted ascending"
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_sort_key_desc() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?sort=key_desc")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify keys are sorted alphabetically descending
+        for i in 0..response_json.data.len() - 1 {
+            assert!(
+                response_json.data[i].key >= response_json.data[i + 1].key,
+                "Keys should be sorted descending"
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_sort_created_asc() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?sort=created_asc")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify timestamps are sorted ascending (oldest first)
+        for i in 0..response_json.data.len() - 1 {
+            let created1 = chrono::DateTime::parse_from_rfc3339(&response_json.data[i].created_at)
+                .unwrap();
+            let created2 =
+                chrono::DateTime::parse_from_rfc3339(&response_json.data[i + 1].created_at)
+                    .unwrap();
+            assert!(
+                created1 <= created2,
+                "Timestamps should be sorted ascending (oldest first)"
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_sort_created_desc() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?sort=created_desc")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify timestamps are sorted descending (newest first)
+        for i in 0..response_json.data.len() - 1 {
+            let created1 = chrono::DateTime::parse_from_rfc3339(&response_json.data[i].created_at)
+                .unwrap();
+            let created2 =
+                chrono::DateTime::parse_from_rfc3339(&response_json.data[i + 1].created_at)
+                    .unwrap();
+            assert!(
+                created1 >= created2,
+                "Timestamps should be sorted descending (newest first)"
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_sort_updated_asc() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?sort=updated_asc")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify updated timestamps are sorted ascending
+        for i in 0..response_json.data.len() - 1 {
+            let updated1 = chrono::DateTime::parse_from_rfc3339(&response_json.data[i].updated_at)
+                .unwrap();
+            let updated2 =
+                chrono::DateTime::parse_from_rfc3339(&response_json.data[i + 1].updated_at)
+                    .unwrap();
+            assert!(
+                updated1 <= updated2,
+                "Updated timestamps should be sorted ascending"
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_sort_updated_desc() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?sort=updated_desc")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify updated timestamps are sorted descending
+        for i in 0..response_json.data.len() - 1 {
+            let updated1 = chrono::DateTime::parse_from_rfc3339(&response_json.data[i].updated_at)
+                .unwrap();
+            let updated2 =
+                chrono::DateTime::parse_from_rfc3339(&response_json.data[i + 1].updated_at)
+                    .unwrap();
+            assert!(
+                updated1 >= updated2,
+                "Updated timestamps should be sorted descending"
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_prefix_filter() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        // Filter by prefix - look for keys starting with specific UUID prefix
+        // Since we're using deterministic UUIDs, we need to get the actual keys first
+        let all_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let all_body = axum::body::to_bytes(all_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let all_json: ListResponse = serde_json::from_slice(&all_body).unwrap();
+
+        if all_json.data.is_empty() {
+            panic!("No test data found");
+        }
+
+        // Use a prefix that should match at least one key
+        let prefix = &all_json.data[0].key[..8]; // First 8 characters
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/kv?prefix={}", prefix))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // All returned keys should start with the prefix
+        for entry in &response_json.data {
+            assert!(
+                entry.key.starts_with(prefix),
+                "Key '{}' should start with prefix '{}'",
+                entry.key,
+                prefix
+            );
+        }
+
+        // Total count should reflect filtered count
+        assert_eq!(
+            response_json.total_count,
+            response_json.data.len() as i64
+        );
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_prefix_with_pagination() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        // Get a prefix that matches multiple entries
+        let all_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let all_body = axum::body::to_bytes(all_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let all_json: ListResponse = serde_json::from_slice(&all_body).unwrap();
+
+        // Use a short prefix that should match multiple entries
+        let prefix = &all_json.data[0].key[..4];
+
+        // Test prefix with limit
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/kv?prefix={}&limit=1", prefix))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Should return at most 1 entry
+        assert!(response_json.data.len() <= 1);
+
+        // All keys should match prefix
+        for entry in &response_json.data {
+            assert!(entry.key.starts_with(prefix));
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_response_fields() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify each entry has all required fields
+        for entry in &response_json.data {
+            // Key should be a valid UUID
+            assert!(Uuid::parse_str(&entry.key).is_ok());
+
+            // Value should be valid JSON
+            assert!(entry.value.is_object() || entry.value.is_array());
+
+            // Timestamps should be valid ISO 8601
+            assert!(chrono::DateTime::parse_from_rfc3339(&entry.created_at).is_ok());
+            assert!(chrono::DateTime::parse_from_rfc3339(&entry.updated_at).is_ok());
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_total_count_accuracy() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        // Get all entries
+        let all_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let all_body = axum::body::to_bytes(all_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let all_json: ListResponse = serde_json::from_slice(&all_body).unwrap();
+
+        // Get with limit
+        let limited_response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?limit=2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let limited_body = axum::body::to_bytes(limited_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let limited_json: ListResponse = serde_json::from_slice(&limited_body).unwrap();
+
+        // Total count should be the same regardless of limit
+        assert_eq!(all_json.total_count, limited_json.total_count);
+
+        // But data length should be limited
+        assert_eq!(limited_json.data.len(), 2);
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_error_invalid_sort() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?sort=invalid_value")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let error_response: ErrorResponse = serde_json::from_slice(&body).unwrap();
+
+        // Should include helpful error message
+        assert!(error_response.error.contains("sort must be one of"));
+        assert!(error_response.error.contains("invalid_value"));
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_integration_default_sort() {
+        let (app, _ids) = setup_list_test_app().await;
+
+        // Request without sort parameter should default to key_asc
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Verify default sort is key ascending
+        for i in 0..response_json.data.len() - 1 {
+            assert!(
+                response_json.data[i].key <= response_json.data[i + 1].key,
+                "Default sort should be key ascending"
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
 }
