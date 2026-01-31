@@ -1,0 +1,1 @@
+a new GET endpoint that returns all keys & values.
