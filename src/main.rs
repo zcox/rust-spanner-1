@@ -14,6 +14,8 @@ use serde_json::Value as JsonValue;
 use spanner::{SortOrder, SpannerClient};
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
 
 /// Shared application state
@@ -22,6 +24,38 @@ struct AppState {
     spanner_client: SpannerClient,
     config: Arc<Config>,
 }
+
+/// OpenAPI documentation
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "rust-spanner-kv API",
+        version = "1.0.0",
+        description = "A simple JSON key-value store backed by Google Cloud Spanner"
+    ),
+    paths(
+        health_handler,
+        put_handler,
+        get_handler,
+        list_handler
+    ),
+    components(
+        schemas(
+            PutResponse,
+            GetResponse,
+            ListResponse,
+            KvEntryResponse,
+            ErrorResponse,
+            HealthResponse,
+            UnhealthyResponse
+        )
+    ),
+    tags(
+        (name = "health", description = "Health check operations"),
+        (name = "kv", description = "Key-value store operations")
+    )
+)]
+struct ApiDoc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -48,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_handler))
         .route("/kv", get(list_handler))
         .route("/kv/{id}", put(put_handler).get(get_handler))
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 
