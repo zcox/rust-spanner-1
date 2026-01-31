@@ -192,6 +192,20 @@ struct UnhealthyResponse {
 }
 
 /// PUT /kv/:id handler - Store a JSON document
+#[utoipa::path(
+    put,
+    path = "/kv/{id}",
+    params(
+        ("id" = String, Path, description = "UUID key for the document")
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Document stored successfully", body = PutResponse),
+        (status = 400, description = "Invalid UUID format or invalid JSON", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
+    ),
+    tag = "kv"
+)]
 async fn put_handler(
     State(state): State<AppState>,
     Path(id_str): Path<String>,
@@ -213,6 +227,20 @@ async fn put_handler(
 }
 
 /// GET /kv/:id handler - Retrieve a JSON document
+#[utoipa::path(
+    get,
+    path = "/kv/{id}",
+    params(
+        ("id" = String, Path, description = "UUID key for the document")
+    ),
+    responses(
+        (status = 200, description = "Document found", body = GetResponse),
+        (status = 400, description = "Invalid UUID format", body = ErrorResponse),
+        (status = 404, description = "Key not found", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
+    ),
+    tag = "kv"
+)]
 async fn get_handler(
     State(state): State<AppState>,
     Path(id_str): Path<String>,
@@ -247,6 +275,22 @@ async fn get_handler(
 /// - offset: Number of results to skip (optional, default: 0)
 /// - prefix: Filter keys starting with this value (optional)
 /// - sort: Sort order - one of: key_asc, key_desc, created_asc, created_desc, updated_asc, updated_desc (optional, default: key_asc)
+#[utoipa::path(
+    get,
+    path = "/kv",
+    params(
+        ("limit" = Option<u32>, Query, description = "Maximum number of results to return"),
+        ("offset" = Option<u32>, Query, description = "Number of results to skip"),
+        ("prefix" = Option<String>, Query, description = "Filter keys starting with this value"),
+        ("sort" = Option<String>, Query, description = "Sort order: key_asc, key_desc, created_asc, created_desc, updated_asc, updated_desc")
+    ),
+    responses(
+        (status = 200, description = "List of key-value pairs", body = ListResponse),
+        (status = 400, description = "Invalid query parameter", body = ErrorResponse),
+        (status = 500, description = "Database error", body = ErrorResponse)
+    ),
+    tag = "kv"
+)]
 async fn list_handler(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
@@ -315,6 +359,15 @@ async fn list_handler(
 ///
 /// Performs a simple query to Spanner to verify database connectivity.
 /// Returns 200 OK if the database is reachable, 503 Service Unavailable otherwise.
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Service is healthy", body = HealthResponse),
+        (status = 503, description = "Service is unhealthy", body = UnhealthyResponse)
+    ),
+    tag = "health"
+)]
 async fn health_handler(
     State(state): State<AppState>,
 ) -> Result<(StatusCode, Json<HealthResponse>), (StatusCode, Json<UnhealthyResponse>)> {
