@@ -58,8 +58,8 @@ struct KvEntryResponse {
 
 ## Acceptance Criteria
 
-- [ ] Route correctly handles `GET /kv` without conflicting with `GET /kv/:key`
-- [ ] All query parameters parsed correctly
-- [ ] Invalid sort values return 400
-- [ ] Response format matches spec exactly
-- [ ] Timestamps formatted as ISO 8601
+- [x] Route correctly handles `GET /kv` without conflicting with `GET /kv/:key`
+- [x] All query parameters parsed correctly
+- [x] Invalid sort values return 400
+- [x] Response format matches spec exactly
+- [x] Timestamps formatted as ISO 8601

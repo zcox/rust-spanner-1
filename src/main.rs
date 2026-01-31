@@ -2,7 +2,7 @@ mod config;
 mod spanner;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, put},
@@ -11,7 +11,7 @@ use axum::{
 use config::Config;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use spanner::SpannerClient;
+use spanner::{SortOrder, SpannerClient};
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
@@ -46,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
     // Build the router
     let app = Router::new()
         .route("/health", get(health_handler))
+        .route("/kv", get(list_handler))
         .route("/kv/{id}", put(put_handler).get(get_handler))
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
@@ -76,6 +77,31 @@ struct GetResponse {
     data: JsonValue,
 }
 
+/// Query parameters for list endpoint
+#[derive(Deserialize)]
+struct ListQuery {
+    limit: Option<u32>,
+    offset: Option<u32>,
+    prefix: Option<String>,
+    sort: Option<String>,
+}
+
+/// Response type for list endpoint
+#[derive(Serialize, Deserialize)]
+struct ListResponse {
+    data: Vec<KvEntryResponse>,
+    total_count: i64,
+}
+
+/// Individual key-value entry in list response
+#[derive(Serialize, Deserialize)]
+struct KvEntryResponse {
+    key: String,
+    value: JsonValue,
+    created_at: String,
+    updated_at: String,
+}
+
 /// Error response type
 #[derive(Serialize, Deserialize)]
 struct ErrorResponse {
@@ -97,6 +123,8 @@ enum ApiError {
     DatabaseError(anyhow::Error),
     /// JSON parsing error
     JsonError(serde_json::Error),
+    /// Invalid query parameter
+    InvalidQueryParam(String),
 }
 
 impl IntoResponse for ApiError {
@@ -117,6 +145,10 @@ impl IntoResponse for ApiError {
             ApiError::JsonError(err) => (
                 StatusCode::BAD_REQUEST,
                 format!("JSON parse error: {}", err),
+            ),
+            ApiError::InvalidQueryParam(msg) => (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid query parameter: {}", msg),
             ),
         };
 
@@ -207,6 +239,78 @@ async fn get_handler(
     }
 }
 
+/// GET /kv handler - List all key-value pairs
+///
+/// Returns a paginated, filterable, and sortable list of all key-value pairs.
+/// Query parameters:
+/// - limit: Maximum number of results to return (optional)
+/// - offset: Number of results to skip (optional, default: 0)
+/// - prefix: Filter keys starting with this value (optional)
+/// - sort: Sort order - one of: key_asc, key_desc, created_asc, created_desc, updated_asc, updated_desc (optional, default: key_asc)
+async fn list_handler(
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<(StatusCode, Json<ListResponse>), ApiError> {
+    // Parse and validate sort parameter
+    let sort = if let Some(sort_str) = &query.sort {
+        match sort_str.as_str() {
+            "key_asc" => SortOrder::KeyAsc,
+            "key_desc" => SortOrder::KeyDesc,
+            "created_asc" => SortOrder::CreatedAsc,
+            "created_desc" => SortOrder::CreatedDesc,
+            "updated_asc" => SortOrder::UpdatedAsc,
+            "updated_desc" => SortOrder::UpdatedDesc,
+            _ => {
+                return Err(ApiError::InvalidQueryParam(format!(
+                    "sort must be one of: key_asc, key_desc, created_asc, created_desc, updated_asc, updated_desc, got '{}'",
+                    sort_str
+                )))
+            }
+        }
+    } else {
+        SortOrder::KeyAsc // default
+    };
+
+    // Convert limit and offset to i64
+    let limit = query.limit.map(|l| l as i64);
+    let offset = query.offset.unwrap_or(0) as i64;
+
+    // Query the database
+    let result = state
+        .spanner_client
+        .list_all(query.prefix.as_deref(), sort, limit, offset)
+        .await?;
+
+    // Convert to response format with ISO 8601 timestamps
+    let data: Vec<KvEntryResponse> = result
+        .entries
+        .into_iter()
+        .map(|entry| KvEntryResponse {
+            key: entry.key,
+            value: entry.value,
+            created_at: entry.created_at.to_rfc3339(),
+            updated_at: entry.updated_at.to_rfc3339(),
+        })
+        .collect();
+
+    let response = ListResponse {
+        data,
+        total_count: result.total_count,
+    };
+
+    tracing::info!(
+        "Listed {} entries (total: {}, prefix: {:?}, sort: {:?}, limit: {:?}, offset: {})",
+        response.data.len(),
+        response.total_count,
+        query.prefix,
+        sort,
+        limit,
+        offset
+    );
+
+    Ok((StatusCode::OK, Json(response)))
+}
+
 /// GET /health handler - Health check endpoint
 ///
 /// Performs a simple query to Spanner to verify database connectivity.
@@ -246,6 +350,7 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
+    use chrono;
     use tower::ServiceExt;
 
     async fn setup_test_app() -> Router {
@@ -274,6 +379,7 @@ mod tests {
 
         Router::new()
             .route("/health", get(health_handler))
+            .route("/kv", get(list_handler))
             .route("/kv/{id}", put(put_handler).get(get_handler))
             .with_state(state)
     }
@@ -662,6 +768,297 @@ mod tests {
             // In a real scenario, the health endpoint would return 503 if the database becomes
             // unreachable after the app has started
             return;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_endpoint_empty() {
+        let app = setup_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Should return a list with total_count (may have data from other tests)
+        assert!(response_json.data.len() <= response_json.total_count as usize);
+        assert!(response_json.total_count >= 0);
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_endpoint_with_data() {
+        let app = setup_test_app().await;
+
+        // Insert some test data
+        let test_id1 = Uuid::new_v4();
+        let test_id2 = Uuid::new_v4();
+        let test_data1 = serde_json::json!({"name": "first"});
+        let test_data2 = serde_json::json!({"name": "second"});
+
+        // PUT first document
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/kv/{}", test_id1))
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&test_data1).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // PUT second document
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/kv/{}", test_id2))
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&test_data2).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // List all
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Should have at least our 2 documents
+        assert!(response_json.data.len() >= 2);
+        assert!(response_json.total_count >= 2);
+
+        // Verify response format
+        for entry in &response_json.data {
+            assert!(!entry.key.is_empty());
+            // Verify ISO 8601 timestamp format
+            assert!(chrono::DateTime::parse_from_rfc3339(&entry.created_at).is_ok());
+            assert!(chrono::DateTime::parse_from_rfc3339(&entry.updated_at).is_ok());
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_endpoint_with_limit() {
+        let app = setup_test_app().await;
+
+        // Insert test data
+        let test_id = Uuid::new_v4();
+        let test_data = serde_json::json!({"test": "data"});
+
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/kv/{}", test_id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&test_data).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // List with limit
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?limit=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let response_json: ListResponse = serde_json::from_slice(&body).unwrap();
+
+        // Should return at most 1 entry
+        assert!(response_json.data.len() <= 1);
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_endpoint_with_sort() {
+        let app = setup_test_app().await;
+
+        // Test various sort parameters
+        let sort_options = vec![
+            "key_asc",
+            "key_desc",
+            "created_asc",
+            "created_desc",
+            "updated_asc",
+            "updated_desc",
+        ];
+
+        for sort in sort_options {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri(format!("/kv?sort={}", sort))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "Sort option '{}' should be valid",
+                sort
+            );
+        }
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_endpoint_invalid_sort() {
+        let app = setup_test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv?sort=invalid_sort")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let error_response: ErrorResponse = serde_json::from_slice(&body).unwrap();
+        assert!(error_response.error.contains("sort must be one of"));
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_endpoint_no_conflict_with_get() {
+        let app = setup_test_app().await;
+
+        // First, PUT a document
+        let test_id = Uuid::new_v4();
+        let test_data = serde_json::json!({"test": "data"});
+
+        let put_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/kv/{}", test_id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&test_data).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(put_response.status(), StatusCode::OK);
+
+        // GET specific key should work
+        let get_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/kv/{}", test_id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(get_response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(get_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let get_json: GetResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(get_json.id, test_id.to_string());
+        assert_eq!(get_json.data, test_data);
+
+        // List endpoint should also work
+        let list_response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/kv")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(list_response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list_json: ListResponse = serde_json::from_slice(&body).unwrap();
+        assert!(list_json.data.len() >= 1);
+
+        unsafe {
+            std::env::remove_var("SPANNER_EMULATOR_HOST");
         }
     }
 }
