@@ -110,11 +110,6 @@ impl SpannerClient {
         })
     }
 
-    /// Get a reference to the underlying Spanner client
-    pub fn client(&self) -> &Client {
-        &self.inner
-    }
-
     /// Upsert (insert or update) a JSON document with the given UUID key
     ///
     /// This operation will insert a new row if the ID doesn't exist, or update
