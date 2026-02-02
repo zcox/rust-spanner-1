@@ -1,5 +1,6 @@
 use crate::error::{ApiError, ErrorResponse};
 use crate::models::{KvEntryResponse, ListQuery, ListResponse};
+use crate::routes;
 use crate::spanner::SortOrder;
 use crate::state::AppState;
 use axum::{extract::Query, extract::State, http::StatusCode, Json};
@@ -14,7 +15,7 @@ use axum::{extract::Query, extract::State, http::StatusCode, Json};
 /// - sort: Sort order - one of: key_asc, key_desc, created_asc, created_desc, updated_asc, updated_desc (optional, default: key_asc)
 #[utoipa::path(
     get,
-    path = "/kv",
+    path = routes::KV_LIST,
     params(
         ("limit" = Option<u32>, Query, description = "Maximum number of results to return"),
         ("offset" = Option<u32>, Query, description = "Number of results to skip"),
@@ -130,8 +131,8 @@ mod tests {
         };
 
         Router::new()
-            .route("/kv", get(list_handler))
-            .route("/kv/{id}", put(put_handler).get(get_handler))
+            .route(crate::routes::KV_LIST, get(list_handler))
+            .route(crate::routes::KV_ITEM, put(put_handler).get(get_handler))
             .with_state(state)
     }
 
@@ -454,8 +455,8 @@ mod tests {
         };
 
         let app = Router::new()
-            .route("/kv", get(list_handler))
-            .route("/kv/{id}", put(put_handler).get(get_handler))
+            .route(crate::routes::KV_LIST, get(list_handler))
+            .route(crate::routes::KV_ITEM, put(put_handler).get(get_handler))
             .with_state(state);
 
         // Insert test data

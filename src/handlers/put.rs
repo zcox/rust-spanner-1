@@ -1,5 +1,6 @@
 use crate::error::{ApiError, ErrorResponse};
 use crate::models::PutResponse;
+use crate::routes;
 use crate::state::AppState;
 use axum::{extract::State, extract::Path, http::StatusCode, Json};
 use serde_json::Value as JsonValue;
@@ -8,7 +9,7 @@ use uuid::Uuid;
 /// PUT /kv/:id handler - Store a JSON document
 #[utoipa::path(
     put,
-    path = "/kv/{id}",
+    path = routes::KV_ITEM,
     params(
         ("id" = String, Path, description = "UUID key for the document")
     ),
@@ -74,7 +75,7 @@ mod tests {
         };
 
         Router::new()
-            .route("/kv/{id}", put(put_handler))
+            .route(crate::routes::KV_ITEM, put(put_handler))
             .with_state(state)
     }
 

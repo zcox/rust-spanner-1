@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod handlers;
 mod models;
+mod routes;
 mod spanner;
 mod state;
 
@@ -39,9 +40,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Build the router
     let app = Router::new()
-        .route("/health", get(health_handler))
-        .route("/kv", get(list_handler))
-        .route("/kv/{id}", put(put_handler).get(get_handler))
+        .route(routes::HEALTH, get(health_handler))
+        .route(routes::KV_LIST, get(list_handler))
+        .route(routes::KV_ITEM, put(put_handler).get(get_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());

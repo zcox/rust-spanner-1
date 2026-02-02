@@ -1,4 +1,5 @@
 use crate::error::{HealthResponse, UnhealthyResponse};
+use crate::routes;
 use crate::state::AppState;
 use axum::{extract::State, http::StatusCode, Json};
 
@@ -8,7 +9,7 @@ use axum::{extract::State, http::StatusCode, Json};
 /// Returns 200 OK if the database is reachable, 503 Service Unavailable otherwise.
 #[utoipa::path(
     get,
-    path = "/health",
+    path = routes::HEALTH,
     responses(
         (status = 200, description = "Service is healthy", body = HealthResponse),
         (status = 503, description = "Service is unhealthy", body = UnhealthyResponse)
@@ -78,7 +79,7 @@ mod tests {
         };
 
         let app = Router::new()
-            .route("/health", get(health_handler))
+            .route(crate::routes::HEALTH, get(health_handler))
             .with_state(state);
 
         let response = app

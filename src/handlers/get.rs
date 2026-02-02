@@ -1,5 +1,6 @@
 use crate::error::{ApiError, ErrorResponse};
 use crate::models::GetResponse;
+use crate::routes;
 use crate::state::AppState;
 use axum::{extract::State, extract::Path, http::StatusCode, Json};
 use uuid::Uuid;
@@ -7,7 +8,7 @@ use uuid::Uuid;
 /// GET /kv/:id handler - Retrieve a JSON document
 #[utoipa::path(
     get,
-    path = "/kv/{id}",
+    path = routes::KV_ITEM,
     params(
         ("id" = String, Path, description = "UUID key for the document")
     ),
@@ -82,7 +83,7 @@ mod tests {
         };
 
         Router::new()
-            .route("/kv/{id}", put(put_handler).get(get_handler))
+            .route(crate::routes::KV_ITEM, put(put_handler).get(get_handler))
             .with_state(state)
     }
 
