@@ -2,10 +2,6 @@
 
 Design documentation for rust-spanner-kv, a simple JSON key-value store web service built with Rust/Axum and backed by Google Cloud Spanner.
 
-## Current Status Notes
-
-Project not yet started. All specs defined, ready to begin implementation with Local Development spec first (need emulator running to develop against).
-
 ## Build a JSON Key-Value Store Service
 
 | Status | Spec | Purpose |
