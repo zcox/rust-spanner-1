@@ -1,145 +1,98 @@
 # rust-spanner-kv
 
-A simple JSON key-value store web service built with Rust/Axum and backed by Google Cloud Spanner.
+A JSON key-value store web service built with Rust/Axum and backed by Google Cloud Spanner.
 
 ## Quick Start
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd rust-spanner-1
-
-# Copy environment configuration
 cp .env.example .env
-
-# Start the Spanner emulator
 docker-compose up -d
-
-# Run the service (automatically creates instance/database/table on first run)
 cargo run
 ```
 
-The service will start on `http://localhost:3000` by default.
+Service starts on `http://localhost:3000`.
 
-## API Reference
+## API
 
-### Store Document
-```
-PUT /kv/:id
-```
-Stores a JSON document with the specified ID.
-
-### Retrieve Document
-```
-GET /kv/:id
-```
-Retrieves a JSON document by ID.
-
-### Health Check
-```
-GET /health
-```
-Returns the health status of the service.
-
-## OpenAPI Documentation
-
-The service provides interactive API documentation via Swagger UI:
+### `GET /health`
+Returns service health status. Queries Spanner to verify connectivity.
 
 ```bash
-# Start the service
-cargo run
-
-# Open Swagger UI in your browser
-open http://localhost:3000/swagger-ui
+curl http://localhost:3000/health
+```
+```json
+{"status": "healthy"}
 ```
 
-The raw OpenAPI specification is available at:
-```
-GET /api-doc/openapi.json
-```
+---
 
-## Configuration Reference
-
-All configuration is managed through environment variables. Copy `.env.example` to `.env` and modify as needed.
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `SPANNER_EMULATOR_HOST` | Spanner emulator connection (set for local dev, unset for production) | `localhost:9010` | No |
-| `SPANNER_PROJECT` | Google Cloud project ID | `test-project` | Yes |
-| `SPANNER_INSTANCE` | Spanner instance name | `test-instance` | Yes |
-| `SPANNER_DATABASE` | Spanner database name | `test-database` | Yes |
-| `SERVICE_PORT` | HTTP server port | `3000` | Yes |
-| `SERVICE_HOST` | HTTP server bind address | `0.0.0.0` | Yes |
-
-## Example Usage
-
-### Store a JSON Document
+### `PUT /kv/{id}`
+Store a JSON document. `id` must be a UUID. Creates or overwrites the entry.
 
 ```bash
 curl -X PUT http://localhost:3000/kv/550e8400-e29b-41d4-a716-446655440000 \
   -H "Content-Type: application/json" \
-  -d '{"name": "test", "value": 42}' | jq
+  -d '{"name": "test", "value": 42}'
+```
+```json
+{"id": "550e8400-e29b-41d4-a716-446655440000"}
 ```
 
-**Response:**
+---
+
+### `GET /kv/{id}`
+Retrieve a JSON document by UUID. Returns 404 if not found.
+
+```bash
+curl http://localhost:3000/kv/550e8400-e29b-41d4-a716-446655440000
+```
+```json
+{"id": "550e8400-e29b-41d4-a716-446655440000", "data": {"name": "test", "value": 42}}
+```
+
+---
+
+### `GET /kv`
+List all entries. Supports pagination, prefix filtering, and sorting.
+
+| Param | Description | Default |
+|-------|-------------|---------|
+| `limit` | Max results to return | (all) |
+| `offset` | Results to skip | `0` |
+| `prefix` | Filter keys by prefix | (none) |
+| `sort` | `key_asc`, `key_desc`, `created_asc`, `created_desc`, `updated_asc`, `updated_desc` | `key_asc` |
+
+```bash
+curl "http://localhost:3000/kv?limit=10&sort=created_desc"
+```
 ```json
 {
-  "id": "550e8400-e29b-41d4-a716-446655440000"
+  "data": [
+    {
+      "key": "550e8400-e29b-41d4-a716-446655440000",
+      "value": {"name": "test", "value": 42},
+      "created_at": "2026-03-13T16:32:26.485579+00:00",
+      "updated_at": "2026-03-13T16:32:26.485579+00:00"
+    }
+  ],
+  "total_count": 1
 }
 ```
 
-### Retrieve a JSON Document
+---
 
-```bash
-curl http://localhost:3000/kv/550e8400-e29b-41d4-a716-446655440000 | jq
-```
+Interactive docs: `http://localhost:3000/swagger-ui`
+OpenAPI spec: `GET /api-doc/openapi.json`
 
-**Response:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "data": {
-    "name": "test",
-    "value": 42
-  }
-}
-```
+## Configuration
 
-### Health Check
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SPANNER_EMULATOR_HOST` | Emulator address (unset for production) | `localhost:9010` |
+| `SPANNER_PROJECT` | Google Cloud project ID | `test-project` |
+| `SPANNER_INSTANCE` | Spanner instance name | `test-instance` |
+| `SPANNER_DATABASE` | Spanner database name | `test-database` |
+| `SERVICE_PORT` | HTTP server port | `3000` |
+| `SERVICE_HOST` | HTTP server bind address | `0.0.0.0` |
 
-```bash
-curl http://localhost:3000/health | jq
-```
-
-**Response:**
-```json
-{
-  "status": "healthy"
-}
-```
-
-## Local Development Notes
-
-When running locally with the Spanner emulator:
-
-- **Automatic Provisioning**: The service automatically creates the Spanner instance, database, and table on first startup. No manual setup required.
-- **Emulator Configuration**: Setting `SPANNER_EMULATOR_HOST` tells the service to connect to the local emulator instead of production Spanner.
-- **Data Persistence**: Data in the emulator is ephemeral and will be lost when the container is stopped.
-
-## Development Workflow
-
-```bash
-# Start the emulator
-docker-compose up -d
-
-# Run the service
-cargo run
-
-# In another terminal, test the API
-curl -X PUT http://localhost:3000/kv/550e8400-e29b-41d4-a716-446655440000 \
-  -H "Content-Type: application/json" \
-  -d '{"hello": "world"}' | jq
-
-# Stop the emulator when done
-docker-compose down
-```
+On first startup, the service automatically creates the Spanner instance, database, and table.
