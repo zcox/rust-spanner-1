@@ -1,11 +1,6 @@
 # rust-spanner-kv
 
-A simple JSON key-value store web service built with Rust/Axum and backed by Google Cloud Spanner. The service automatically creates instances, databases, and tables on first run when using the emulator, making local development effortless.
-
-## Prerequisites
-
-- **Rust** (latest stable version)
-- **Docker** and **Docker Compose**
+A simple JSON key-value store web service built with Rust/Axum and backed by Google Cloud Spanner.
 
 ## Quick Start
 
